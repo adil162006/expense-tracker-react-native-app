@@ -1,7 +1,7 @@
 
 import { useCallback, useState } from "react";
 
-const API_URL = "https://localhost:5001/api"
+const API_URL = "https://expense-tracker-react-native-app.onrender.com/api"
 import { Alert } from "react-native";
 
 export const useTransactions = (userId)=>{
@@ -19,6 +19,8 @@ const fetchTransactions = useCallback(async () => {
   try {
     const response = await fetch(`${API_URL}/transactions/${userId}`);
     const data = await response.json();
+    console.log(data);
+    
     setTransactions(data);
   } catch (error) {
     console.error("Error fetching transactions:", error);
