@@ -1,69 +1,90 @@
-// react custom hook file
+import { sql } from "../config/db.js";
 
-import { useCallback, useState } from "react";
-import { Alert } from "react-native";
-import { API_URL } from "../constants/api";
+export async function getTransactionsByUserId(req, res) {
+  try {
+    const { userId } = req.params;
 
-// const API_URL = "https://wallet-api-cxqp.onrender.com/api";
-// const API_URL = "http://localhost:5001/api";
+    const transactions = await sql`
+        SELECT * FROM transactions WHERE user_id = ${userId} ORDER BY created_at DESC
+      `;
 
-export const useTransactions = (userId) => {
-  const [transactions, setTransactions] = useState([]);
-  const [summary, setSummary] = useState({
-    balance: 0,
-    income: 0,
-    expenses: 0,
-  });
-  const [isLoading, setIsLoading] = useState(true);
+    res.status(200).json(transactions);
+  } catch (error) {
+    console.log("Error getting the transactions", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+}
 
-  // useCallback is used for performance reasons, it will memoize the function
-  const fetchTransactions = useCallback(async () => {
-    try {
-      const response = await fetch(`${API_URL}/transactions/${userId}`);
-      const data = await response.json();
-      setTransactions(data);
-    } catch (error) {
-      console.error("Error fetching transactions:", error);
+export async function createTransaction(req, res) {
+  try {
+    const { title, amount, category, user_id } = req.body;
+
+    if (!title || !user_id || !category || amount === undefined) {
+      return res.status(400).json({ message: "All fields are required" });
     }
-  }, [userId]);
 
-  const fetchSummary = useCallback(async () => {
-    try {
-      const response = await fetch(`${API_URL}/transactions/summary/${userId}`);
-      const data = await response.json();
-      setSummary(data);
-    } catch (error) {
-      console.error("Error fetching summary:", error);
+    const transaction = await sql`
+      INSERT INTO transactions(user_id,title,amount,category)
+      VALUES (${user_id},${title},${amount},${category})
+      RETURNING *
+    `;
+
+    console.log(transaction);
+    res.status(201).json(transaction[0]);
+  } catch (error) {
+    console.log("Error creating the transaction", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+}
+
+export async function deleteTransaction(req, res) {
+  try {
+    const { id } = req.params;
+
+    if (isNaN(parseInt(id))) {
+      return res.status(400).json({ message: "Invalid transaction ID" });
     }
-  }, [userId]);
 
-  const loadData = useCallback(async () => {
-    if (!userId) return;
+    const result = await sql`
+      DELETE FROM transactions WHERE id = ${id} RETURNING *
+    `;
 
-    setIsLoading(true);
-    try {
-      // can be run in parallel
-      await Promise.all([fetchTransactions(), fetchSummary()]);
-    } catch (error) {
-      console.error("Error loading data:", error);
-    } finally {
-      setIsLoading(false);
+    if (result.length === 0) {
+      return res.status(404).json({ message: "Transaction not found" });
     }
-  }, [fetchTransactions, fetchSummary, userId]);
 
-  const deleteTransaction = async (id) => {
-    try {
-      const response = await fetch(`${API_URL}/transactions/${id}`, { method: "DELETE" });
-      if (!response.ok) throw new Error("Failed to delete transaction");
+    res.status(200).json({ message: "Transaction deleted successfully" });
+  } catch (error) {
+    console.log("Error deleting the transaction", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+}
 
-      // Refresh data after deletion
-      loadData();
-      Alert.alert("Success", "Transaction deleted successfully");
-    } catch (error) {
-      console.error("Error deleting transaction:", error);
-      Alert.alert("Error", error.message);
-    }
-  };
+export async function getSummaryByUserId(req, res) {
+  try {
+    const { userId } = req.params;
 
-  return { transactions, summary, isLoading, loadData, deleteTransaction };
-};
+    const balanceResult = await sql`
+      SELECT COALESCE(SUM(amount), 0) as balance FROM transactions WHERE user_id = ${userId}
+    `;
+
+    const incomeResult = await sql`
+      SELECT COALESCE(SUM(amount), 0) as income FROM transactions
+      WHERE user_id = ${userId} AND amount > 0
+    `;
+
+    const expensesResult = await sql`
+      SELECT COALESCE(SUM(amount), 0) as expenses FROM transactions
+      WHERE user_id = ${userId} AND amount < 0
+    `;
+
+    res.status(200).json({
+      balance: balanceResult[0].balance,
+      income: incomeResult[0].income,
+      expenses: expensesResult[0].expenses,
+    });
+  } catch (error) {
+    console.log("Error gettin the summary", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+}
