@@ -67,9 +67,33 @@ const CreateScreen = () => {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        console.log(errorData);
-        throw new Error(errorData.error || "Failed to create transaction");
+        // Server returned an error or non-JSON body. Read text for better debugging.
+        let bodyText;
+        try {
+          bodyText = await response.text();
+        } catch (e) {
+          bodyText = String(e);
+        }
+
+        // Attempt to extract a message from JSON-like body
+        let serverMessage = bodyText;
+        try {
+          const parsed = JSON.parse(bodyText);
+          serverMessage = parsed.message || parsed.error || JSON.stringify(parsed);
+        } catch (e) {
+          /* not JSON, keep bodyText */
+        }
+
+        throw new Error(`Request failed: ${response.status} ${response.statusText} - ${serverMessage}`);
+      }
+
+      // Attempt to parse JSON; if empty body, fallback to success
+      try {
+        const _data = await response.json();
+        void _data; // intentionally unused
+      } catch (_e) {
+        // non-JSON response (empty or text) — treat as success but log it
+        console.warn("Create transaction: response not JSON:", _e);
       }
 
       Alert.alert("Success", "Transaction created successfully");

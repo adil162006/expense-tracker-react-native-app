@@ -9,6 +9,11 @@ dotenv.config();
 
 const app = express();
 if (process.env.NODE_ENV === "production") job.start();
+// logs requests
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+  next();
+});
 app.use(rateLimiter);
 
 const PORT = process.env.PORT || 5001;
