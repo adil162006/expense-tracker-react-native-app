@@ -1,11 +1,6 @@
-// react custom hook file
-
 import { useCallback, useState } from "react";
 import { Alert } from "react-native";
-// import { API_URL } from "../constants/api";
-
-const API_URL = "https://wallet-api-cxqp.onrender.com/api";
-// const API_URL = "http://localhost:5001/api";
+import { API_URL } from "../constants/api.js"; // can switch between localhost / deployed URL
 
 export const useTransactions = (userId) => {
   const [transactions, setTransactions] = useState([]);
@@ -16,46 +11,52 @@ export const useTransactions = (userId) => {
   });
   const [isLoading, setIsLoading] = useState(true);
 
-  // useCallback is used for performance reasons, it will memoize the function
-  const fetchTransactions = useCallback(async () => {
+  // Helper to safely fetch and handle non-OK responses
+  const safeFetch = useCallback(async (url, options = {}) => {
     try {
-      const response = await fetch(`${API_URL}/transactions/${userId}`);
+      const response = await fetch(url, options);
+
       if (!response.ok) {
-        // Try to get text body for better error message (sometimes HTML or plain text)
         const text = await response.text();
         throw new Error(`Request failed: ${response.status} ${response.statusText} - ${text}`);
       }
-      // Parse JSON safely
-      const data = await response.json();
-      setTransactions(data);
+
+      // Try to parse JSON, handle non-JSON gracefully
+      const text = await response.text();
+      try {
+        return JSON.parse(text);
+      } catch {
+        console.error("Backend did not return JSON:", text);
+        return null;
+      }
     } catch (error) {
-      // JSON parse errors often mean the server returned non-JSON (HTML / plain text)
-      console.error("Error fetching transactions:", error);
+      console.error("Network / fetch error:", error);
+      throw error;
+    }
+  }, []);
+
+  const fetchTransactions = useCallback(async () => {
+    try {
+      const data = await safeFetch(`${API_URL}/transactions/${userId}`);
+      if (data) setTransactions(data);
+    } catch (error) {
       Alert.alert("Error fetching transactions", error.message || String(error));
     }
-  }, [userId]);
+  }, [userId, safeFetch]);
 
   const fetchSummary = useCallback(async () => {
     try {
-      const response = await fetch(`${API_URL}/transactions/summary/${userId}`);
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`Request failed: ${response.status} ${response.statusText} - ${text}`);
-      }
-      const data = await response.json();
-      setSummary(data);
+      const data = await safeFetch(`${API_URL}/transactions/summary/${userId}`);
+      if (data) setSummary(data);
     } catch (error) {
-      console.error("Error fetching summary:", error);
       Alert.alert("Error fetching summary", error.message || String(error));
     }
-  }, [userId]);
+  }, [userId, safeFetch]);
 
   const loadData = useCallback(async () => {
     if (!userId) return;
-
     setIsLoading(true);
     try {
-      // can be run in parallel
       await Promise.all([fetchTransactions(), fetchSummary()]);
     } catch (error) {
       console.error("Error loading data:", error);
@@ -64,22 +65,18 @@ export const useTransactions = (userId) => {
     }
   }, [fetchTransactions, fetchSummary, userId]);
 
-  const deleteTransaction = async (id) => {
-    try {
-      const response = await fetch(`${API_URL}/transactions/${id}`, { method: "DELETE" });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`Failed to delete transaction: ${response.status} ${response.statusText} - ${text}`);
+  const deleteTransaction = useCallback(
+    async (id) => {
+      try {
+        await safeFetch(`${API_URL}/transactions/${id}`, { method: "DELETE" });
+        Alert.alert("Success", "Transaction deleted successfully");
+        loadData();
+      } catch (error) {
+        Alert.alert("Error deleting transaction", error.message || String(error));
       }
-
-      // Refresh data after deletion
-      loadData();
-      Alert.alert("Success", "Transaction deleted successfully");
-    } catch (error) {
-      console.error("Error deleting transaction:", error);
-      Alert.alert("Error", error.message);
-    }
-  };
+    },
+    [loadData, safeFetch]
+  );
 
   return { transactions, summary, isLoading, loadData, deleteTransaction };
 };
